@@ -57,8 +57,8 @@ class BaseModel(object):
       reverse_target_vocab_table: Lookup table mapping ids to target words. Only
         required in INFER mode. Defaults to None.
       scope: scope of the model.
-      extra_args: allow for adding customized cell. When not specified,
-        we default to model_helper._single_cell
+      extra_args: model_helper.ExtraArgs, for passing customizable functions.
+
     """
     assert isinstance(iterator, iterator_utils.BatchedInput)
     self.iterator = iterator
@@ -116,9 +116,14 @@ class BaseModel(object):
           self.iterator.target_sequence_length)
 
     ## Learning rate
-    print("  start_decay_step=%d, learning_rate=%g, decay_steps %d,"
-          "decay_factor %g" % (hparams.start_decay_step, hparams.learning_rate,
-                               hparams.decay_steps, hparams.decay_factor))
+    warmup_steps = hparams.learning_rate_warmup_steps
+    warmup_factor = hparams.learning_rate_warmup_factor
+    print("  start_decay_step=%d, learning_rate=%g, decay_steps %d, "
+          "decay_factor %g, learning_rate_warmup_steps=%d, "
+          "learning_rate_warmup_factor=%g, starting_learning_rate=%g" %
+          (hparams.start_decay_step, hparams.learning_rate, hparams.decay_steps,
+           hparams.decay_factor, warmup_steps, warmup_factor,
+           (hparams.learning_rate * warmup_factor ** warmup_steps)))
     self.global_step = tf.Variable(0, trainable=False)
 
     params = tf.trainable_variables()
@@ -126,12 +131,26 @@ class BaseModel(object):
     # Gradients and SGD update operation for training the model.
     # Arrage for the embedding vars to appear at the beginning.
     if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
+      self.learning_rate = tf.constant(hparams.learning_rate)
+
+      # Apply inverse decay if global steps less than warmup steps.
+      # Inspired by https://arxiv.org/pdf/1706.03762.pdf (Section 5.3)
+      # When step < warmup_steps,
+      #   learing_rate *= warmup_factor ** (warmup_steps - step)
+      inv_decay = warmup_factor**(
+          tf.to_float(warmup_steps - self.global_step))
+      self.learning_rate = tf.cond(
+        self.global_step < hparams.learning_rate_warmup_steps,
+        lambda: inv_decay * self.learning_rate,
+        lambda: self.learning_rate,
+        name="learning_rate_decay_warump_cond")
+
       if hparams.optimizer == "sgd":
         self.learning_rate = tf.cond(
             self.global_step < hparams.start_decay_step,
-            lambda: tf.constant(hparams.learning_rate),
+            lambda: self.learning_rate,
             lambda: tf.train.exponential_decay(
-                hparams.learning_rate,
+                self.learning_rate,
                 (self.global_step - hparams.start_decay_step),
                 hparams.decay_steps,
                 hparams.decay_factor,
@@ -143,7 +162,6 @@ class BaseModel(object):
         assert float(
             hparams.learning_rate
         ) <= 0.001, "! High Adam learning rate %g" % hparams.learning_rate
-        self.learning_rate = tf.constant(hparams.learning_rate)
         opt = tf.train.AdamOptimizer(self.learning_rate)
 
       gradients = tf.gradients(
@@ -467,10 +485,11 @@ class BaseModel(object):
     target_dist = tf.contrib.distributions.MultivariateNormalDiag(
       tf.zeros([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]),
       tf.ones([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]))
-    kl_divergence = tf.contrib.distributions.kl(our_dist, target_dist)                                                          
-    # kl_divergence = -0.5 * tf.reduce_sum(1.0 + log_sigma_sq - tf.square(mu) - tf.exp(log_sigma_sq))
-    loss = tf.reduce_sum(
-        crossent * target_weights + kl_divergence) / tf.to_float(self.batch_size)
+    # kl_divergence = tf.contrib.distributions.kl(our_dist, target_dist)                                                          
+    kl_divergence = -0.5 * tf.reduce_sum(1.0 + log_sigma_sq - tf.square(mu) - tf.exp(log_sigma_sq))
+    ce_loss = tf.reduce_sum(crossent * target_weights) / tf.to_float(self.batch_size)
+    kl_loss = tf.reduce_sum(kl_divergence) / tf.to_float(self.batch_size)
+    loss = ce_loss + kl_loss
     return loss
 
   def _get_infer_summary(self, hparams):
