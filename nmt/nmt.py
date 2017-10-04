@@ -89,6 +89,8 @@ def add_arguments(parser):
                       help="Learning rate. Adam: 0.001 | 0.0001")
   parser.add_argument("--learning_rate_warmup_steps", type=int, default=0,
                       help="How many steps we inverse-decay learning.")
+  parser.add_argument("--anneal_steps", type=int, default=5000,
+                      help="How many steps to complete KL cost annealing.")
   parser.add_argument("--learning_rate_warmup_factor", type=float, default=1.0,
                       help="The inverse decay factor for each warmup step.")
   parser.add_argument("--start_decay_step", type=int, default=0,
@@ -290,6 +292,7 @@ def create_hparams(flags):
       learning_rate=flags.learning_rate,
       learning_rate_warmup_steps = flags.learning_rate_warmup_steps,
       learning_rate_warmup_factor = flags.learning_rate_warmup_factor,
+      anneal_steps = flags.anneal_steps,
       start_decay_step=flags.start_decay_step,
       decay_factor=flags.decay_factor,
       decay_steps=flags.decay_steps,

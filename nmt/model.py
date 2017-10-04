@@ -126,6 +126,9 @@ class BaseModel(object):
            (hparams.learning_rate * warmup_factor ** warmup_steps)))
     self.global_step = tf.Variable(0, trainable=False)
 
+    self.anneal_steps = hparams.anneal_steps
+    # self.anneal_factor = tf.nn.sigmoid(tf.subtract(self.global_step, self.anneal_steps)/ self.anneal_steps)
+    self.anneal_factor = tf.zeros([1], dtype=tf.float32)
     params = tf.trainable_variables()
 
     # Gradients and SGD update operation for training the model.
@@ -164,8 +167,9 @@ class BaseModel(object):
         ) <= 0.001, "! High Adam learning rate %g" % hparams.learning_rate
         opt = tf.train.AdamOptimizer(self.learning_rate)
 
+      self.total_loss = tf.multiply(tf.cast(self.anneal_factor, tf.float32), self.train_loss[1]) + self.train_loss[2]
       gradients = tf.gradients(
-          self.train_loss[0],
+          self.total_loss,
           params,
           colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
@@ -258,7 +262,7 @@ class BaseModel(object):
       enc_state_size = tf.cast(encoder_state[0].get_shape()[1], tf.int32)
       vae_input = tf.concat([encoder_state[0], encoder_state[1]], axis=1)
       # This needs to be present as a hyperparameter
-      vae_units = 32
+      vae_units = 128
       num_hidden_units = 128
       
       mu = tf.contrib.layers.fully_connected(vae_input, vae_units,

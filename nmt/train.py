@@ -280,20 +280,25 @@ def train(hparams, scope=None, target_session=""):
 
       # Print statistics for the previous epoch.
       avg_step_time = step_time / steps_per_stats
-      train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
+      # Train Perplexity computed only for CE loss for debugging purposes
+      # train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
+      train_ppl = utils.safe_exp(checkpoint_ce_loss / checkpoint_predict_count)
+      
       kl_avg = checkpoint_kl_loss / checkpoint_predict_count
       ce_avg = checkpoint_ce_loss / checkpoint_predict_count
       speed = checkpoint_total_count / (1000 * step_time)
       utils.print_out(
-          "  global step %d lr %g "
-          "step-time %.2fs wps %.2fK ppl %.2f kl %.2f ce %.2f %s" %
+          "  global step %d lr %g af %g "
+          "step-time %.2fs wps %.2fK cpc %.2f ppl %.2f kl %.2f ce %.2f %s" %
           (global_step,
            loaded_train_model.learning_rate.eval(session=train_sess),
-           avg_step_time, speed, train_ppl, kl_avg, ce_avg,
+           loaded_train_model.anneal_factor.eval(session=train_sess),
+           avg_step_time, speed, checkpoint_predict_count,
+           train_ppl, kl_avg, ce_avg,
            _get_best_results(hparams)),
           log_f)
-      if math.isnan(train_ppl):
-        break
+      # if math.isnan(train_ppl):
+        # break
 
       # Reset timer and loss.
       step_time, checkpoint_loss, checkpoint_kl_loss, checkpoint_ce_loss, checkpoint_predict_count = 0.0, 0.0, 0.0, 0.0, 0.0
