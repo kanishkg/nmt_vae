@@ -219,7 +219,7 @@ def train(hparams, scope=None, target_session=""):
   last_external_eval_step = global_step
 
   # This is the training loop.
-  step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
+  step_time, checkpoint_loss, checkpoint_kl_loss, checkpoint_ce_loss, checkpoint_predict_count = 0.0, 0.0, 0.0, 0.0, 0.0
   checkpoint_total_count = 0.0
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
@@ -268,7 +268,9 @@ def train(hparams, scope=None, target_session=""):
     # update statistics
     step_time += (time.time() - start_time)
 
-    checkpoint_loss += (step_loss * batch_size)
+    checkpoint_kl_loss += (step_loss[1] * batch_size)
+    checkpoint_ce_loss += (step_loss[2] * batch_size)
+    checkpoint_loss += (step_loss[0] * batch_size)
     checkpoint_predict_count += step_predict_count
     checkpoint_total_count += float(step_word_count)
 
@@ -279,19 +281,22 @@ def train(hparams, scope=None, target_session=""):
       # Print statistics for the previous epoch.
       avg_step_time = step_time / steps_per_stats
       train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
+      kl_avg = checkpoint_kl_loss / checkpoint_predict_count
+      ce_avg = checkpoint_ce_loss / checkpoint_predict_count
       speed = checkpoint_total_count / (1000 * step_time)
       utils.print_out(
           "  global step %d lr %g "
-          "step-time %.2fs wps %.2fK ppl %.2f %s" %
+          "step-time %.2fs wps %.2fK ppl %.2f kl %.2f ce %.2f %s" %
           (global_step,
            loaded_train_model.learning_rate.eval(session=train_sess),
-           avg_step_time, speed, train_ppl, _get_best_results(hparams)),
+           avg_step_time, speed, train_ppl, kl_avg, ce_avg,
+           _get_best_results(hparams)),
           log_f)
       if math.isnan(train_ppl):
         break
 
       # Reset timer and loss.
-      step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
+      step_time, checkpoint_loss, checkpoint_kl_loss, checkpoint_ce_loss, checkpoint_predict_count = 0.0, 0.0, 0.0, 0.0, 0.0
       checkpoint_total_count = 0.0
 
     if global_step - last_eval_step >= steps_per_eval:

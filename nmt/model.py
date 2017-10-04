@@ -165,7 +165,7 @@ class BaseModel(object):
         opt = tf.train.AdamOptimizer(self.learning_rate)
 
       gradients = tf.gradients(
-          self.train_loss,
+          self.train_loss[0],
           params,
           colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
@@ -178,7 +178,7 @@ class BaseModel(object):
       # Summary
       self.train_summary = tf.summary.merge([
           tf.summary.scalar("lr", self.learning_rate),
-          tf.summary.scalar("train_loss", self.train_loss),
+          tf.summary.scalar("train_loss", self.train_loss[0]),
       ] + gradient_norm_summary)
 
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
@@ -217,7 +217,7 @@ class BaseModel(object):
 
   def eval(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.EVAL
-    return sess.run([self.eval_loss,
+    return sess.run([self.eval_loss[0],
                      self.predict_count,
                      self.batch_size])
 
@@ -485,12 +485,13 @@ class BaseModel(object):
     target_dist = tf.contrib.distributions.MultivariateNormalDiag(
       tf.zeros([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]),
       tf.ones([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]))
-    # kl_divergence = tf.contrib.distributions.kl(our_dist, target_dist)                                                          
-    kl_divergence = -0.5 * tf.reduce_sum(1.0 + log_sigma_sq - tf.square(mu) - tf.exp(log_sigma_sq))
+    kl_divergence = tf.contrib.distributions.kl_divergence(our_dist, target_dist)
+
+    # kl_divergence = -0.5 * tf.reduce_sum(1.0 + log_sigma_sq - tf.square(mu) - tf.exp(log_sigma_sq))
     ce_loss = tf.reduce_sum(crossent * target_weights) / tf.to_float(self.batch_size)
     kl_loss = tf.reduce_sum(kl_divergence) / tf.to_float(self.batch_size)
     loss = ce_loss + kl_loss
-    return loss
+    return [loss, kl_loss, ce_loss]
 
   def _get_infer_summary(self, hparams):
     return tf.no_op()
