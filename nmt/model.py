@@ -127,8 +127,9 @@ class BaseModel(object):
     self.global_step = tf.Variable(0, trainable=False)
 
     self.anneal_steps = hparams.anneal_steps
-    # self.anneal_factor = tf.nn.sigmoid(tf.subtract(self.global_step, self.anneal_steps)/ self.anneal_steps)
-    self.anneal_factor = tf.zeros([1], dtype=tf.float32)
+    self.anneal_scale = tf.divide(self.anneal_steps, tf.constant(5))
+    self.anneal_factor = tf.nn.sigmoid(tf.cast(tf.subtract(self.global_step, self.anneal_steps), tf.float64) / self.anneal_scale)
+    # self.anneal_factor = tf.zeros([1], dtype=tf.float32)
     params = tf.trainable_variables()
 
     # Gradients and SGD update operation for training the model.
