@@ -57,8 +57,8 @@ class BaseModel(object):
       reverse_target_vocab_table: Lookup table mapping ids to target words. Only
         required in INFER mode. Defaults to None.
       scope: scope of the model.
-      extra_args: allow for adding customized cell. When not specified,
-        we default to model_helper._single_cell
+      extra_args: model_helper.ExtraArgs, for passing customizable functions.
+
     """
     assert isinstance(iterator, iterator_utils.BatchedInput)
     self.iterator = iterator
@@ -116,22 +116,45 @@ class BaseModel(object):
           self.iterator.target_sequence_length)
 
     ## Learning rate
-    print("  start_decay_step=%d, learning_rate=%g, decay_steps %d,"
-          "decay_factor %g" % (hparams.start_decay_step, hparams.learning_rate,
-                               hparams.decay_steps, hparams.decay_factor))
+    warmup_steps = hparams.learning_rate_warmup_steps
+    warmup_factor = hparams.learning_rate_warmup_factor
+    print("  start_decay_step=%d, learning_rate=%g, decay_steps %d, "
+          "decay_factor %g, learning_rate_warmup_steps=%d, "
+          "learning_rate_warmup_factor=%g, starting_learning_rate=%g" %
+          (hparams.start_decay_step, hparams.learning_rate, hparams.decay_steps,
+           hparams.decay_factor, warmup_steps, warmup_factor,
+           (hparams.learning_rate * warmup_factor ** warmup_steps)))
     self.global_step = tf.Variable(0, trainable=False)
 
+    self.anneal_steps = hparams.anneal_steps
+    self.anneal_scale = tf.divide(self.anneal_steps, tf.constant(5))
+    self.anneal_factor = tf.nn.sigmoid(tf.cast(tf.subtract(self.global_step, self.anneal_steps), tf.float64) / self.anneal_scale)
+    # self.anneal_factor = tf.zeros([1], dtype=tf.float32)
     params = tf.trainable_variables()
 
     # Gradients and SGD update operation for training the model.
     # Arrage for the embedding vars to appear at the beginning.
     if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
+      self.learning_rate = tf.constant(hparams.learning_rate)
+
+      # Apply inverse decay if global steps less than warmup steps.
+      # Inspired by https://arxiv.org/pdf/1706.03762.pdf (Section 5.3)
+      # When step < warmup_steps,
+      #   learing_rate *= warmup_factor ** (warmup_steps - step)
+      inv_decay = warmup_factor**(
+          tf.to_float(warmup_steps - self.global_step))
+      self.learning_rate = tf.cond(
+        self.global_step < hparams.learning_rate_warmup_steps,
+        lambda: inv_decay * self.learning_rate,
+        lambda: self.learning_rate,
+        name="learning_rate_decay_warump_cond")
+
       if hparams.optimizer == "sgd":
         self.learning_rate = tf.cond(
             self.global_step < hparams.start_decay_step,
-            lambda: tf.constant(hparams.learning_rate),
+            lambda: self.learning_rate,
             lambda: tf.train.exponential_decay(
-                hparams.learning_rate,
+                self.learning_rate,
                 (self.global_step - hparams.start_decay_step),
                 hparams.decay_steps,
                 hparams.decay_factor,
@@ -143,11 +166,11 @@ class BaseModel(object):
         assert float(
             hparams.learning_rate
         ) <= 0.001, "! High Adam learning rate %g" % hparams.learning_rate
-        self.learning_rate = tf.constant(hparams.learning_rate)
         opt = tf.train.AdamOptimizer(self.learning_rate)
 
+      self.total_loss = tf.multiply(tf.cast(self.anneal_factor, tf.float32), self.train_loss[1]) + self.train_loss[2]
       gradients = tf.gradients(
-          self.train_loss,
+          self.total_loss,
           params,
           colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
@@ -160,7 +183,7 @@ class BaseModel(object):
       # Summary
       self.train_summary = tf.summary.merge([
           tf.summary.scalar("lr", self.learning_rate),
-          tf.summary.scalar("train_loss", self.train_loss),
+          tf.summary.scalar("train_loss", self.train_loss[0]),
       ] + gradient_norm_summary)
 
     if self.mode == tf.contrib.learn.ModeKeys.INFER:
@@ -199,7 +222,7 @@ class BaseModel(object):
 
   def eval(self, sess):
     assert self.mode == tf.contrib.learn.ModeKeys.EVAL
-    return sess.run([self.eval_loss,
+    return sess.run([self.eval_loss[0],
                      self.predict_count,
                      self.batch_size])
 
@@ -242,7 +265,7 @@ class BaseModel(object):
       enc_state_size = tf.cast(encoder_state[-1][0].get_shape()[1], tf.int32)
       vae_input = tf.concat(s, axis=1)
       # This needs to be present as a hyperparameter
-      vae_units = 32
+      vae_units = 128
       num_hidden_units = 128
       
       mu = tf.contrib.layers.fully_connected(vae_input, vae_units,
@@ -474,11 +497,13 @@ class BaseModel(object):
     target_dist = tf.contrib.distributions.MultivariateNormalDiag(
       tf.zeros([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]),
       tf.ones([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]))
-    kl_divergence = tf.contrib.distributions.kl_divergence(our_dist, target_dist)                                                          
+    kl_divergence = tf.contrib.distributions.kl_divergence(our_dist, target_dist)
+
     # kl_divergence = -0.5 * tf.reduce_sum(1.0 + log_sigma_sq - tf.square(mu) - tf.exp(log_sigma_sq))
-    loss = tf.reduce_sum(
-        crossent * target_weights + kl_divergence) / tf.to_float(self.batch_size)
-    return loss
+    ce_loss = tf.reduce_sum(crossent * target_weights) / tf.to_float(self.batch_size)
+    kl_loss = tf.reduce_sum(kl_divergence) / tf.to_float(self.batch_size)
+    loss = ce_loss + kl_loss
+    return [loss, kl_loss, ce_loss]
 
   def _get_infer_summary(self, hparams):
     return tf.no_op()
