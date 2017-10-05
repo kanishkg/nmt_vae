@@ -254,7 +254,7 @@ class BaseModel(object):
     with tf.variable_scope(scope or "dynamic_seq2seq", dtype=dtype):
       # Encoder
       encoder_outputs, encoder_state = self._build_encoder(hparams)
-      print("!!!!!!!!!encoder's state shape is: ", encoder_state)
+      #print("!!!!!!!!!encoder's state shape is: ", encoder_state)
       c = [each_state[0] for each_state in encoder_state]
       h = [each_state[1] for each_state in encoder_state]
       s = c+h
