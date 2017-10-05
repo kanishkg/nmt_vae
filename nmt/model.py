@@ -231,14 +231,16 @@ class BaseModel(object):
     with tf.variable_scope(scope or "dynamic_seq2seq", dtype=dtype):
       # Encoder
       encoder_outputs, encoder_state = self._build_encoder(hparams)
-      # print("encoder's state shape is: ", encoder_state[0].get_shape())
-
+      print("!!!!!!!!!encoder's state shape is: ", encoder_state)
+      c = [each_state[0] for each_state in encoder_state]
+      h = [each_state[1] for each_state in encoder_state]
+      s = c+h
       # IMPORTANT
       # If number of layers > 1, encoder_state is a state tuple and I don't know
       # how to handle it properly (how do I convert states from multiple layers
       # into one mean and one log_sigma_sq? Have to discuss! 
-      enc_state_size = tf.cast(encoder_state[0].get_shape()[1], tf.int32)
-      vae_input = tf.concat([encoder_state[0], encoder_state[1]], axis=1)
+      enc_state_size = tf.cast(encoder_state[-1][0].get_shape()[1], tf.int32)
+      vae_input = tf.concat(s, axis=1)
       # This needs to be present as a hyperparameter
       vae_units = 32
       num_hidden_units = 128
@@ -253,12 +255,17 @@ class BaseModel(object):
       latent_vars = tf.add(mu, tf.multiply(sigma, sampled_epsilon))
 
       # Feed this back to the decoder
-      c_state = tf.contrib.layers.fully_connected(latent_vars, num_hidden_units,
+      c_state = tf.contrib.layers.fully_connected(latent_vars,
+                                                  num_hidden_units*num_layers,
                                                   activation_fn=None)
-      h_state = tf.contrib.layers.fully_connected(latent_vars, num_hidden_units,
+      h_state = tf.contrib.layers.fully_connected(latent_vars,
+                                                  num_hidden_units*num_layers,
                                                   activation_fn=None)
-      decoder_init_state = tf.contrib.rnn.LSTMStateTuple(c_state, h_state)
-      
+      c_state = tf.split(c_state,num_layers,axis = 1)
+      h_state = tf.split(h_state, num_layers, axis = 1)
+      decoder_init_state = [tf.contrib.rnn.LSTMStateTuple(
+          c_state[i],h_state[i])for i in range(num_layers)]
+      decoder_init_state = tuple(decoder_init_state)
       # print("decoder init state shape: ", decoder_init_state[1].get_shape())
       ## Decoder
       logits, sample_id, final_context_state = self._build_decoder(
@@ -467,7 +474,7 @@ class BaseModel(object):
     target_dist = tf.contrib.distributions.MultivariateNormalDiag(
       tf.zeros([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]),
       tf.ones([self.batch_size, tf.cast(mu.get_shape()[-1], tf.int32)]))
-    kl_divergence = tf.contrib.distributions.kl(our_dist, target_dist)                                                          
+    kl_divergence = tf.contrib.distributions.kl_divergence(our_dist, target_dist)                                                          
     # kl_divergence = -0.5 * tf.reduce_sum(1.0 + log_sigma_sq - tf.square(mu) - tf.exp(log_sigma_sq))
     loss = tf.reduce_sum(
         crossent * target_weights + kl_divergence) / tf.to_float(self.batch_size)
