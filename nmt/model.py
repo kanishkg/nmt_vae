@@ -378,6 +378,12 @@ class BaseModel(object):
         target_input = iterator.target_input
         if self.time_major:
           target_input = tf.transpose(target_input)
+        max_time = self.get_max_time(target_input)
+        target_shape = [max_time,self.batch_size]
+        drop_prob = tf.random_uniform(target_shape, minval=0.0, maxval=1.0, dtype=tf.float32, seed=None, name=None)
+        drop_tensor = tf.ones(target_shape,tf.float32)*hparams.word_dropout_prob
+        drop_mask =tf.to_int32(tf.greater(drop_prob,drop_tensor))
+        target_input_dropped = tf.multiply(target_input,drop_mask)
         decoder_emb_inp = tf.nn.embedding_lookup(
             self.embedding_decoder, target_input)
 

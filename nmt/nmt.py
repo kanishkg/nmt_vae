@@ -57,7 +57,8 @@ def add_arguments(parser):
                       help="Whether to use time-major mode for dynamic RNN.")
   parser.add_argument("--num_embeddings_partitions", type=int, default=0,
                       help="Number of partitions for embedding vars.")
-
+  parser.add_argument("--word_dropout_prob", type=float, default=0.0,
+                     help="Probability of Dropping wordsin Decoder")
   # attention mechanisms
   parser.add_argument("--attention", type=str, default="", help="""\
       luong | scaled_luong | bahdanau | normed_bahdanau or set to "" for no
@@ -276,6 +277,7 @@ def create_hparams(flags):
       residual=flags.residual,
       time_major=flags.time_major,
       num_embeddings_partitions=flags.num_embeddings_partitions,
+      word_dropout_prob=flags.word_dropout_prob,
 
       # Attention mechanisms
       attention=flags.attention,
