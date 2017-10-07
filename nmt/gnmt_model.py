@@ -42,7 +42,7 @@ class GNMTModel(attention_model.AttentionModel):
                target_vocab_table,
                reverse_target_vocab_table=None,
                scope=None,
-               extra_args=None):
+               single_cell_fn=None):
     super(GNMTModel, self).__init__(
         hparams=hparams,
         mode=mode,
@@ -51,7 +51,7 @@ class GNMTModel(attention_model.AttentionModel):
         target_vocab_table=target_vocab_table,
         reverse_target_vocab_table=reverse_target_vocab_table,
         scope=scope,
-        extra_args=extra_args)
+        single_cell_fn=single_cell_fn)
 
   def _build_encoder(self, hparams):
     """Build a GNMT encoder."""
@@ -148,8 +148,8 @@ class GNMTModel(attention_model.AttentionModel):
     else:
       batch_size = self.batch_size
 
-    attention_mechanism = self.attention_mechanism_fn(
-        attention_option, num_units, memory, source_sequence_length, self.mode)
+    attention_mechanism = attention_model.create_attention_mechanism(
+        attention_option, num_units, memory, source_sequence_length)
 
     cell_list = model_helper._cell_list(  # pylint: disable=protected-access
         unit_type=hparams.unit_type,

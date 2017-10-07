@@ -2,9 +2,8 @@
 
 *Authors: Thang Luong, Eugene Brevdo, Rui Zhao*
 
-*This version of the tutorial requires [TensorFlow Nightly](https://github.com/tensorflow/tensorflow/#installation).
-For using the stable TensorFlow versions, please consider other branches such as
-[tf-1.2](https://github.com/tensorflow/nmt/tree/tf-1.2).*
+*This version of the tutorial requires [TensorFlow Version 1.2+](https://github.com/tensorflow/tensorflow/#installation)*
+
 
 - [Introduction](#introduction)
 - [Basic](#basic)
@@ -148,8 +147,8 @@ decoding process while "&lt/s&gt" tells the decoder to stop.
 ## Installing the Tutorial
 
 To install this tutorial, you need to have TensorFlow installed on your system.
-This tutorial requires TensorFlow Nightly. To install TensorFlow, follow
-the [installation instructions here](https://www.tensorflow.org/install/).
+This tutorial requires TensorFlow Version 1.2+. To install TensorFlow, follow the
+[installation instructions here](https://www.tensorflow.org/install/).
 
 Once TensorFlow is installed, you can download the source code of this tutorial
 by running:

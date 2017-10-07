@@ -15,6 +15,7 @@
 """For training NMT models."""
 from __future__ import print_function
 
+import collections
 import math
 import os
 import random
@@ -27,15 +28,125 @@ from . import gnmt_model
 from . import inference
 from . import model as nmt_model
 from . import model_helper
+from .utils import iterator_utils
 from .utils import misc_utils as utils
 from .utils import nmt_utils
+from .utils import vocab_utils
 
 utils.check_tensorflow_version()
 
 __all__ = [
-    "run_sample_decode",
+    "create_train_model", "create_eval_model", "run_sample_decode",
     "run_internal_eval", "run_external_eval", "run_full_eval", "train"
 ]
+
+
+class TrainModel(
+    collections.namedtuple("TrainModel", ("graph", "model", "iterator",
+                                          "skip_count_placeholder"))):
+  pass
+
+
+def create_train_model(
+    model_creator, hparams, scope=None, single_cell_fn=None,
+    model_device_fn=None):
+  """Create train graph, model, and iterator."""
+  src_file = "%s.%s" % (hparams.train_prefix, hparams.src)
+  tgt_file = "%s.%s" % (hparams.train_prefix, hparams.tgt)
+  src_vocab_file = hparams.src_vocab_file
+  tgt_vocab_file = hparams.tgt_vocab_file
+
+  graph = tf.Graph()
+
+  with graph.as_default():
+    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
+        src_vocab_file, tgt_vocab_file, hparams.share_vocab)
+
+    src_dataset = tf.contrib.data.TextLineDataset(src_file)
+    tgt_dataset = tf.contrib.data.TextLineDataset(tgt_file)
+    skip_count_placeholder = tf.placeholder(shape=(), dtype=tf.int64)
+
+    iterator = iterator_utils.get_iterator(
+        src_dataset,
+        tgt_dataset,
+        src_vocab_table,
+        tgt_vocab_table,
+        batch_size=hparams.batch_size,
+        sos=hparams.sos,
+        eos=hparams.eos,
+        source_reverse=hparams.source_reverse,
+        random_seed=hparams.random_seed,
+        num_buckets=hparams.num_buckets,
+        src_max_len=hparams.src_max_len,
+        tgt_max_len=hparams.tgt_max_len,
+        skip_count=skip_count_placeholder)
+
+    # Note: One can set model_device_fn to
+    # `tf.train.replica_device_setter(ps_tasks)` for distributed training.
+    with tf.device(model_device_fn):
+      model = model_creator(
+          hparams,
+          iterator=iterator,
+          mode=tf.contrib.learn.ModeKeys.TRAIN,
+          source_vocab_table=src_vocab_table,
+          target_vocab_table=tgt_vocab_table,
+          scope=scope,
+          single_cell_fn=single_cell_fn)
+
+  return TrainModel(
+      graph=graph,
+      model=model,
+      iterator=iterator,
+      skip_count_placeholder=skip_count_placeholder)
+
+
+class EvalModel(
+    collections.namedtuple("EvalModel",
+                           ("graph", "model", "src_file_placeholder",
+                            "tgt_file_placeholder", "iterator"))):
+  pass
+
+
+def create_eval_model(model_creator, hparams, scope=None, single_cell_fn=None):
+  """Create train graph, model, src/tgt file holders, and iterator."""
+  src_vocab_file = hparams.src_vocab_file
+  tgt_vocab_file = hparams.tgt_vocab_file
+  graph = tf.Graph()
+
+  with graph.as_default():
+    src_vocab_table, tgt_vocab_table = vocab_utils.create_vocab_tables(
+        src_vocab_file, tgt_vocab_file, hparams.share_vocab)
+    src_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
+    tgt_file_placeholder = tf.placeholder(shape=(), dtype=tf.string)
+    src_dataset = tf.contrib.data.TextLineDataset(src_file_placeholder)
+    tgt_dataset = tf.contrib.data.TextLineDataset(tgt_file_placeholder)
+    iterator = iterator_utils.get_iterator(
+        src_dataset,
+        tgt_dataset,
+        src_vocab_table,
+        tgt_vocab_table,
+        hparams.batch_size,
+        sos=hparams.sos,
+        eos=hparams.eos,
+        source_reverse=hparams.source_reverse,
+        random_seed=hparams.random_seed,
+        num_buckets=hparams.num_buckets,
+        src_max_len=hparams.src_max_len_infer,
+        tgt_max_len=hparams.tgt_max_len_infer)
+    model = model_creator(
+        hparams,
+        iterator=iterator,
+        mode=tf.contrib.learn.ModeKeys.EVAL,
+        source_vocab_table=src_vocab_table,
+        target_vocab_table=tgt_vocab_table,
+        scope=scope,
+        single_cell_fn=single_cell_fn)
+  return EvalModel(
+      graph=graph,
+      model=model,
+      src_file_placeholder=src_file_placeholder,
+      tgt_file_placeholder=tgt_file_placeholder,
+      iterator=iterator)
 
 
 def run_sample_decode(infer_model, infer_sess, model_dir, hparams,
@@ -148,7 +259,7 @@ def run_full_eval(model_dir, infer_model, infer_sess, eval_model, eval_sess,
   return result_summary, global_step, dev_scores, test_scores, dev_ppl, test_ppl
 
 
-def train(hparams, scope=None, target_session=""):
+def train(hparams, scope=None, target_session="", single_cell_fn=None):
   """Train a translation model."""
   log_device_placement = hparams.log_device_placement
   out_dir = hparams.out_dir
@@ -168,9 +279,12 @@ def train(hparams, scope=None, target_session=""):
   else:
     raise ValueError("Unknown model architecture")
 
-  train_model = model_helper.create_train_model(model_creator, hparams, scope)
-  eval_model = model_helper.create_eval_model(model_creator, hparams, scope)
-  infer_model = model_helper.create_infer_model(model_creator, hparams, scope)
+  train_model = create_train_model(model_creator, hparams, scope,
+                                   single_cell_fn)
+  eval_model = create_eval_model(model_creator, hparams, scope,
+                                 single_cell_fn)
+  infer_model = inference.create_infer_model(model_creator, hparams,
+                                             scope, single_cell_fn)
 
   # Preload data for sample decoding.
   dev_src_file = "%s.%s" % (hparams.dev_prefix, hparams.src)
@@ -219,7 +333,7 @@ def train(hparams, scope=None, target_session=""):
   last_external_eval_step = global_step
 
   # This is the training loop.
-  step_time, checkpoint_loss, checkpoint_kl_loss, checkpoint_ce_loss, checkpoint_predict_count = 0.0, 0.0, 0.0, 0.0, 0.0
+  step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
   checkpoint_total_count = 0.0
   speed, train_ppl = 0.0, 0.0
   start_train_time = time.time()
@@ -268,9 +382,7 @@ def train(hparams, scope=None, target_session=""):
     # update statistics
     step_time += (time.time() - start_time)
 
-    checkpoint_kl_loss += (step_loss[1] * batch_size)
-    checkpoint_ce_loss += (step_loss[2] * batch_size)
-    checkpoint_loss += (step_loss[0] * batch_size)
+    checkpoint_loss += (step_loss * batch_size)
     checkpoint_predict_count += step_predict_count
     checkpoint_total_count += float(step_word_count)
 
@@ -281,24 +393,19 @@ def train(hparams, scope=None, target_session=""):
       # Print statistics for the previous epoch.
       avg_step_time = step_time / steps_per_stats
       train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
-      
-      kl_avg = checkpoint_kl_loss / checkpoint_predict_count
-      ce_avg = checkpoint_ce_loss / checkpoint_predict_count
       speed = checkpoint_total_count / (1000 * step_time)
       utils.print_out(
-          "  global step %d lr %g af %g "
-          "step-time %.2fs wps %.2fK ppl %.2f kl %.2f ce %.2f %s" %
+          "  global step %d lr %g "
+          "step-time %.2fs wps %.2fK ppl %.2f %s" %
           (global_step,
            loaded_train_model.learning_rate.eval(session=train_sess),
-           loaded_train_model.anneal_factor.eval(session=train_sess),
-           avg_step_time, speed, train_ppl, kl_avg, ce_avg,
-           _get_best_results(hparams)),
+           avg_step_time, speed, train_ppl, _get_best_results(hparams)),
           log_f)
-      # if math.isnan(train_ppl):
-        # break
+      if math.isnan(train_ppl):
+        break
 
       # Reset timer and loss.
-      step_time, checkpoint_loss, checkpoint_kl_loss, checkpoint_ce_loss, checkpoint_predict_count = 0.0, 0.0, 0.0, 0.0, 0.0
+      step_time, checkpoint_loss, checkpoint_predict_count = 0.0, 0.0, 0.0
       checkpoint_total_count = 0.0
 
     if global_step - last_eval_step >= steps_per_eval:
@@ -418,10 +525,10 @@ def _sample_decode(model, global_step, sess, hparams, iterator, src_data,
       nmt_outputs,
       sent_id=0,
       tgt_eos=hparams.eos,
-      subword_option=hparams.subword_option)
+      bpe_delimiter=hparams.bpe_delimiter)
   utils.print_out("    src: %s" % src_data[decode_id])
   utils.print_out("    ref: %s" % tgt_data[decode_id])
-  utils.print_out(b"    nmt: " + translation)
+  utils.print_out(b"    nmt: %s" % translation)
 
   # Summary
   if attention_summary is not None:
@@ -447,7 +554,7 @@ def _external_eval(model, global_step, sess, hparams, iterator,
       output,
       ref_file=tgt_file,
       metrics=hparams.metrics,
-      subword_option=hparams.subword_option,
+      bpe_delimiter=hparams.bpe_delimiter,
       beam_width=hparams.beam_width,
       tgt_eos=hparams.eos,
       decode=decode)
