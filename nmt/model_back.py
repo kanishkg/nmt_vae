@@ -45,7 +45,7 @@ class BaseModel(object):
                  target_vocab_table,
                  reverse_target_vocab_table=None,
                  scope=None,
-                 single_cell_fn=None):
+                 extra_args=None):
         """Create the model.
 
         Args:
@@ -57,8 +57,8 @@ class BaseModel(object):
           reverse_target_vocab_table: Lookup table mapping ids to target words. Only
             required in INFER mode. Defaults to None.
           scope: scope of the model.
-          single_cell_fn: allow for adding customized cell. When not specified,
-            we default to model_helper._single_cell
+          extra_args: model_helper.ExtraArgs, for passing customizable functions.
+
         """
         assert isinstance(iterator, iterator_utils.BatchedInput)
         self.iterator = iterator
@@ -88,9 +88,10 @@ class BaseModel(object):
                 self.output_layer = layers_core.Dense(
                     hparams.tgt_vocab_size, use_bias=False, name="output_projection")
 
-        # To make it flexible for external code to add other cell types
-        # If not specified, we will later use model_helper._single_cell
-        self.single_cell_fn = single_cell_fn
+        # extra_args: to make it flexible for adding external customizable code
+        self.single_cell_fn = None
+        if extra_args:
+            self.single_cell_fn = extra_args.single_cell_fn
 
         # Train graph
         res = self.build_graph(hparams, scope=scope)
@@ -113,10 +114,16 @@ class BaseModel(object):
                 self.iterator.target_sequence_length)
 
         # Learning rate
-        print("  start_decay_step=%d, learning_rate=%g, decay_steps %d,"
-              "decay_factor %g" % (hparams.start_decay_step, hparams.learning_rate,
-                                   hparams.decay_steps, hparams.decay_factor))
+        warmup_steps = hparams.learning_rate_warmup_steps
+        warmup_factor = hparams.learning_rate_warmup_factor
+        print("  start_decay_step=%d, learning_rate=%g, decay_steps %d, "
+              "decay_factor %g, learning_rate_warmup_steps=%d, "
+              "learning_rate_warmup_factor=%g, starting_learning_rate=%g" %
+              (hparams.start_decay_step, hparams.learning_rate, hparams.decay_steps,
+               hparams.decay_factor, warmup_steps, warmup_factor,
+               (hparams.learning_rate * warmup_factor ** warmup_steps)))
         self.global_step = tf.Variable(0, trainable=False)
+
         self.anneal_steps = hparams.anneal_steps
         self.anneal_scale = tf.divide(self.anneal_steps, tf.constant(5))
         self.anneal_factor = tf.nn.sigmoid(tf.cast(tf.subtract(
@@ -127,12 +134,26 @@ class BaseModel(object):
         # Gradients and SGD update operation for training the model.
         # Arrage for the embedding vars to appear at the beginning.
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
+            self.learning_rate = tf.constant(hparams.learning_rate)
+
+            # Apply inverse decay if global steps less than warmup steps.
+            # Inspired by https://arxiv.org/pdf/1706.03762.pdf (Section 5.3)
+            # When step < warmup_steps,
+            #   learing_rate *= warmup_factor ** (warmup_steps - step)
+            inv_decay = warmup_factor**(
+                tf.to_float(warmup_steps - self.global_step))
+            self.learning_rate = tf.cond(
+                self.global_step < hparams.learning_rate_warmup_steps,
+                lambda: inv_decay * self.learning_rate,
+                lambda: self.learning_rate,
+                name="learning_rate_decay_warump_cond")
+
             if hparams.optimizer == "sgd":
                 self.learning_rate = tf.cond(
                     self.global_step < hparams.start_decay_step,
-                    lambda: tf.constant(hparams.learning_rate),
+                    lambda: self.learning_rate,
                     lambda: tf.train.exponential_decay(
-                        hparams.learning_rate,
+                        self.learning_rate,
                         (self.global_step - hparams.start_decay_step),
                         hparams.decay_steps,
                         hparams.decay_factor,
@@ -148,8 +169,8 @@ class BaseModel(object):
 
             self.total_loss = tf.multiply(tf.cast(
                 self.anneal_factor, tf.float32), self.train_loss[1]) + self.train_loss[2]
-             gradients = tf.gradients(
-                self.train_loss,
+            gradients = tf.gradients(
+                self.total_loss,
                 params,
                 colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
@@ -162,7 +183,7 @@ class BaseModel(object):
             # Summary
             self.train_summary = tf.summary.merge([
                 tf.summary.scalar("lr", self.learning_rate),
-                tf.summary.scalar("train_loss", self.train_loss),
+                tf.summary.scalar("train_loss", self.train_loss[0]),
             ] + gradient_norm_summary)
 
         if self.mode == tf.contrib.learn.ModeKeys.INFER:
@@ -201,7 +222,7 @@ class BaseModel(object):
 
     def eval(self, sess):
         assert self.mode == tf.contrib.learn.ModeKeys.EVAL
-        return sess.run([self.eval_loss,
+        return sess.run([self.eval_loss[0],
                          self.predict_count,
                          self.batch_size])
 
@@ -469,12 +490,13 @@ class BaseModel(object):
         """
         pass
 
-    def _compute_loss(self, logits):
+    def _compute_loss(self, logits, mu, log_sigma_sq):
         """Compute optimization loss."""
         target_output = self.iterator.target_output
         if self.time_major:
             target_output = tf.transpose(target_output)
         max_time = self.get_max_time(target_output)
+
         crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=target_output, logits=logits)
         target_weights = tf.sequence_mask(
@@ -561,6 +583,7 @@ class Model(BaseModel):
                     dtype=dtype,
                     sequence_length=iterator.source_sequence_length,
                     time_major=self.time_major)
+
             elif hparams.encoder_type == "bi":
                 num_bi_layers = int(num_layers / 2)
                 num_bi_residual_layers = int(num_residual_layers / 2)
