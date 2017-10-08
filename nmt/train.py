@@ -395,7 +395,7 @@ def train(hparams, scope=None, target_session="", single_cell_fn=None):
       # Print statistics for the previous epoch.
 
       avg_step_time = step_time / steps_per_stats
-      train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count
+      train_ppl = utils.safe_exp(checkpoint_loss / checkpoint_predict_count)
       kl_avg = checkpoint_kl_loss / checkpoint_predict_count
       ce_avg = checkpoint_ce_loss / checkpoint_predict_count
       speed = checkpoint_total_count / (1000 * step_time)

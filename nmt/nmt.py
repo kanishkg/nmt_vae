@@ -264,7 +264,7 @@ def create_hparams(flags):
 
         # Train
         optimizer=flags.optimizer,
-        anneal_steps=flags.anneal_steps
+        anneal_steps=flags.anneal_steps,
         num_train_steps=flags.num_train_steps,
         batch_size=flags.batch_size,
         init_op=flags.init_op,

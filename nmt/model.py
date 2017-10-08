@@ -147,11 +147,12 @@ class BaseModel(object):
                 opt = tf.train.AdamOptimizer(self.learning_rate)
 
             self.total_loss = tf.multiply(tf.cast(
-                self.anneal_factor, tf.float32), self.train_loss[1]) + self.train_loss[2]
-             gradients = tf.gradients(
-                self.train_loss,
-                params,
-                colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
+                self.anneal_factor, tf.float32), self.train_loss[1]) +self.train_loss[2]
+
+            gradients = tf.gradients(
+                    self.train_loss,
+                    params,
+                    colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
             clipped_gradients, gradient_norm_summary = model_helper.gradient_clip(
                 gradients, max_gradient_norm=hparams.max_gradient_norm)
