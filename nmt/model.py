@@ -470,7 +470,7 @@ class BaseModel(object):
         """
         pass
 
-    def _compute_loss(self, logits):
+    def _compute_loss(self, logits, mu, log_sigma_sq):
         """Compute optimization loss."""
         target_output = self.iterator.target_output
         if self.time_major:
