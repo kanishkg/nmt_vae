@@ -150,7 +150,7 @@ class BaseModel(object):
                 self.anneal_factor, tf.float32), self.train_loss[1]) +self.train_loss[2]
 
             gradients = tf.gradients(
-                    self.train_loss,
+                    self.total_loss,
                     params,
                     colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
 
@@ -360,17 +360,16 @@ class BaseModel(object):
                 target_input = iterator.target_input
                 if self.time_major:
                     target_input = tf.transpose(target_input)
-               #
-               #  max_time = self.get_max_time(target_input)
-               #  target_shape = [max_time, self.batch_size]
-               #  drop_prob = tf.random_uniform(
-               #      target_shape, minval=0.0, maxval=1.0, dtype=tf.float32, seed=None, name=None)
-               #  drop_tensor = tf.ones(
-               #      target_shape, tf.float32) * hparams.word_dropout_prob
-               #  drop_mask = tf.to_int32(tf.greater(drop_tensor,drop_prob))
-               #  target_input_dropped = tf.multiply(target_input, drop_mask)
+                max_time = self.get_max_time(target_input)
+                target_shape = [max_time, self.batch_size]
+                drop_prob = tf.random_uniform(
+                    target_shape, minval=0.0, maxval=1.0, dtype=tf.float32, seed=None, name=None)
+                drop_tensor = tf.ones(
+                    target_shape, tf.float32) * hparams.word_dropout_prob
+                drop_mask = tf.to_int32(tf.greater(drop_tensor,drop_prob))
+                target_input_dropped = tf.multiply(target_input, drop_mask)
                 decoder_emb_inp = tf.nn.embedding_lookup(
-                    self.embedding_decoder, target_input)
+                    self.embedding_decoder, target_input_dropped)
 
                 # Helper
                 helper = tf.contrib.seq2seq.TrainingHelper(
