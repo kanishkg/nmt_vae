@@ -106,6 +106,8 @@ def add_arguments(parser):
                               "corresponding op"))
     parser.add_argument("--anneal_steps", type=int, default=5000,
                         help="How many steps to complete KL cost annealing.")
+    parser.add_argument("--ce_factor",type=float, default = 1.0, help = "Factor
+                        that cross entropy is enhanced by")
     # initializer
     parser.add_argument("--init_op", type=str, default="uniform",
                         help="uniform | glorot_normal | glorot_uniform")
@@ -265,6 +267,7 @@ def create_hparams(flags):
         # Train
         optimizer=flags.optimizer,
         anneal_steps=flags.anneal_steps,
+        ce_factor = flags.ce_factor,
         num_train_steps=flags.num_train_steps,
         batch_size=flags.batch_size,
         init_op=flags.init_op,
