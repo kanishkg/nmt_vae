@@ -170,7 +170,7 @@ class BaseModel(object):
                 tf.summary.scalar("lr", self.learning_rate),
                 tf.summary.scalar("train_loss", self.train_loss[0]),
                 tf.summary.scalar("kl_loss", self.train_loss[1]),
-                tf.summary.scalar("ce_loss",self.train_loss[2],
+                tf.summary.scalar("ce_loss",self.train_loss[2]),
             ] + gradient_norm_summary)
 
         if self.mode == tf.contrib.learn.ModeKeys.INFER:
