@@ -124,9 +124,12 @@ class BaseModel(object):
         # self.anneal_factor = tf.zeros([1], dtype=tf.float32)
         params = tf.trainable_variables()
 
+
         # Gradients and SGD update operation for training the model.
         # Arrage for the embedding vars to appear at the beginning.
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
+
+            self.learning_rate = tf.constant(hparams.learning_rate)
             if hparams.optimizer == "sgd":
                 self.learning_rate = tf.cond(
                     self.global_step < hparams.start_decay_step,
@@ -246,8 +249,8 @@ class BaseModel(object):
                 encoder_state[-1][0].get_shape()[1], tf.int32)
             vae_input = tf.concat(s, axis=1)
             # This needs to be present as a hyperparameter
-            vae_units = 128
-            num_hidden_units = 128
+            vae_units = hparams.num_units
+            num_hidden_units = hparams.num_units
 
             mu = tf.contrib.layers.fully_connected(vae_input, vae_units,
                                                    activation_fn=None)
