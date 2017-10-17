@@ -106,8 +106,8 @@ def add_arguments(parser):
                               "corresponding op"))
     parser.add_argument("--anneal_steps", type=int, default=5000,
                         help="How many steps to complete KL cost annealing.")
-    parser.add_argument("--ce_factor",type=float, default = 1.0, help = "Factor
-                        that cross entropy is enhanced by")
+    parser.add_argument("--ce_factor",type=float, default = 1.0,
+                        help = "Factorthat cross entropy is enhanced by")
     # initializer
     parser.add_argument("--init_op", type=str, default="uniform",
                         help="uniform | glorot_normal | glorot_uniform")
