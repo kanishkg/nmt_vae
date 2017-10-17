@@ -149,8 +149,10 @@ class BaseModel(object):
                 ) <= 0.001, "! High Adam learning rate %g" % hparams.learning_rate
                 opt = tf.train.AdamOptimizer(self.learning_rate)
 
+            self.ce_factor = hparams.ce_factor
             self.total_loss = tf.multiply(tf.cast(
-                self.anneal_factor, tf.float32), self.train_loss[1]) +self.train_loss[2]
+                self.anneal_factor, tf.float32), self.train_loss[1])
+            +tf.multiply(self.train_loss[2],self.ce_factor)
 
             gradients = tf.gradients(
                     self.total_loss,
@@ -167,6 +169,8 @@ class BaseModel(object):
             self.train_summary = tf.summary.merge([
                 tf.summary.scalar("lr", self.learning_rate),
                 tf.summary.scalar("train_loss", self.train_loss[0]),
+                tf.summary.scalar("kl_loss", self.train_loss[1]),
+                tf.summary.scalar("ce_loss",self.train_loss[2],
             ] + gradient_norm_summary)
 
         if self.mode == tf.contrib.learn.ModeKeys.INFER:
