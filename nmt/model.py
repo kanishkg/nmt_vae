@@ -151,8 +151,7 @@ class BaseModel(object):
 
             self.ce_factor = hparams.ce_factor
             self.total_loss = tf.multiply(tf.cast(
-                self.anneal_factor, tf.float32), self.train_loss[1])
-            +tf.multiply(self.train_loss[2],self.ce_factor)
+                self.anneal_factor, tf.float32), self.train_loss[1])+tf.multiply(self.train_loss[2],self.ce_factor)
 
             gradients = tf.gradients(
                     self.total_loss,
