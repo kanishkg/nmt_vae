@@ -12,6 +12,7 @@ def make_image_dict(coco):
     image_dict = {}
     for i in range(len(anns)):
         ann = anns[i]
+        ann['caption'] = re.sub('[\n\r.]', '', ann['caption'])
         try:
             image_dict[ann['image_id']].append(ann['caption'])
         except:
@@ -21,6 +22,7 @@ def make_image_dict(coco):
 
 def get_sentences(im_dict):
     orig, altered = [], []
+    count = 0
     for key in im_dict.keys():
         sents = im_dict[key]
         for i, sent in enumerate(sents):
@@ -106,6 +108,7 @@ def process(coco):
     vocab_size = 10000
     im_dict = make_image_dict(coco)
     orig, altered = get_sentences(im_dict)
+    # print(len(orig), len(altered))
     orig_tokenized = tokenize(orig)
     altered_tokenized = tokenize(altered)
     data_orig, data_altered, count, dictionary, reverse_dictionary = build_dataset(orig_tokenized, altered_tokenized, vocab_size)
@@ -113,6 +116,7 @@ def process(coco):
     total_sents = len(orig)
     orig = np.array(orig)
     altered = np.array(altered)
+    
     perm = np.random.permutation(total_sents)
     train_limit = int((0.97)*total_sents)
     valid_limit = int((0.98)*total_sents)
