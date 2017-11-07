@@ -92,7 +92,7 @@ class BaseModel(object):
         # If not specified, we will later use model_helper._single_cell
         self.single_cell_fn = single_cell_fn
 
-        # Train graph
+        # Train graph 
         res = self.build_graph(hparams, scope=scope)
 
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
@@ -252,22 +252,28 @@ class BaseModel(object):
 
             mu = tf.contrib.layers.fully_connected(vae_input, vae_units,
                                                    activation_fn=None)
-            log_sigma_sq = tf.contrib.layers.fully_connected(vae_input, vae_units,
-                                                             activation_fn=None)
+            log_sigma_sq = tf.contrib.layers.fully_connected(
+                vae_input, vae_units, activation_fn=None)
             sampled_epsilon = tf.random_normal([self.batch_size, vae_units], 0.0,
                                                1.0, dtype=tf.float32)
             sigma = tf.sqrt(tf.exp(log_sigma_sq))
             latent_vars = tf.add(mu, tf.multiply(sigma, sampled_epsilon))
+
             # Concatenate control variables to Latent Vars
-            control_vars = self.iterator.control_vars
-            latent_vars = tf.concat([latent_vars,control_vars])
+            # control_vars = tf.cast(self.iterator.control_vars, tf.float32)
+            cast_shape = tf.cast(self.batch_size, tf.int32)
+            print("control vars : ", self.iterator.control_vars)
+            control_vars = tf.reshape(self.iterator.control_vars,
+                                      [cast_shape, 1])
+            print("latent vars initial: ", latent_vars)
+            latent_vars = tf.concat([latent_vars, control_vars], axis=1)
+            print("latent vars: ", latent_vars)
+            
             # Feed this back to the decoder
-            c_state = tf.contrib.layers.fully_connected(latent_vars,
-                                                        num_hidden_units * num_layers,
-                                                        activation_fn=None)
-            h_state = tf.contrib.layers.fully_connected(latent_vars,
-                                                        num_hidden_units * num_layers,
-                                                        activation_fn=None)
+            c_state = tf.contrib.layers.fully_connected(
+                latent_vars, num_hidden_units * num_layers, activation_fn=None)
+            h_state = tf.contrib.layers.fully_connected(
+                latent_vars, num_hidden_units * num_layers, activation_fn=None)
             c_state = tf.split(c_state, num_layers, axis=1)
             h_state = tf.split(h_state, num_layers, axis=1)
             decoder_init_state = [tf.contrib.rnn.LSTMStateTuple(

@@ -28,11 +28,11 @@ __all__ = ["BatchedInput", "get_iterator", "get_infer_iterator"]
 class BatchedInput(collections.namedtuple("BatchedInput",
                                           ("initializer",
                                            "source",
+                                           "control_vars",
                                            "target_input",
                                            "target_output",
                                            "source_sequence_length",
-                                           "target_sequence_length",
-                                           "control_vars"))):
+                                           "target_sequence_length"))):
     pass
 
 
@@ -40,19 +40,26 @@ def get_infer_iterator(
         src_dataset, src_vocab_table, batch_size,
         source_reverse, eos, src_max_len=None):
     src_eos_id = tf.cast(src_vocab_table.lookup(tf.constant(eos)), tf.int32)
-    control_vars = src_dataset.map(lambda src:
-                                   tf.string_split([src], delimiter='#').values[1])
-    src_dataset = src_dataset.map(lambda src: tf.string_split([src]).values)
+    src_dataset = src_dataset.map(
+        lambda src:
+        (tf.string_split([src], delimiter='#').values[0],
+         tf.string_split([src], delimiter='#').values[1]))
+    src_dataset = src_dataset.map(lambda src, cv: (
+        tf.string_split([src]).values, cv))
 
     if src_max_len:
-        src_dataset = src_dataset.map(lambda src: src[:src_max_len])
+        src_dataset = src_dataset.map(lambda src, cv: (src[:src_max_len], cv))
     # Convert the word strings to ids
     src_dataset = src_dataset.map(
-        lambda src: tf.cast(src_vocab_table.lookup(src), tf.int32))
+        lambda src, cv: (tf.cast(src_vocab_table.lookup(src), tf.int32),
+        tf.string_to_number(cv, tf.float32)))
+    # src_dataset = src_dataset.map(
+    #     lambda src, cv: (src, tf.cast(cv, tf.float32)))
     if source_reverse:
-        src_dataset = src_dataset.map(lambda src: tf.reverse(src, axis=[0]))
+        src_dataset = src_dataset.map(
+            lambda src, cv: (tf.reverse(src, axis=[0]), cv))
     # Add in the word counts.
-    src_dataset = src_dataset.map(lambda src: (src, tf.size(src)))
+    src_dataset = src_dataset.map(lambda src, cv: (src, cv, tf.size(src)))
 
     def batching_func(x):
         return x.padded_batch(
@@ -61,24 +68,26 @@ def get_infer_iterator(
             # this has unknown-length vectors.  The last entry is
             # the source row size; this is a scalar.
             padded_shapes=(tf.TensorShape([None]),  # src
-                           tf.TensorShape([])),     # src_len
+                           tf.TensorShape([]),      # cv
+                           tf.TensorShape([])),      # src_len
             # Pad the source sequences with eos tokens.
             # (Though notice we don't generally need to do this since
             # later on we will be masking out calculations past the true sequence.
             padding_values=(src_eos_id,  # src
+                            0.0,         # control_vars
                             0))          # src_len -- unused
 
     batched_dataset = batching_func(src_dataset)
     batched_iter = batched_dataset.make_initializable_iterator()
-    (src_ids, src_seq_len) = batched_iter.get_next()
+    (src_ids, control_vars, src_seq_len) = batched_iter.get_next()
     return BatchedInput(
         initializer=batched_iter.initializer,
         source=src_ids,
+        control_vars=control_vars,
         target_input=None,
         target_output=None,
         source_sequence_length=src_seq_len,
-        target_sequence_length=None
-        control_vars=control_vars)
+        target_sequence_length=None)
 
 
 def get_iterator(src_dataset,
@@ -120,8 +129,9 @@ def get_iterator(src_dataset,
         lambda src, tgt: (
              tf.string_split([src], delimiter='#').values[0],
              tf.string_split([src], delimiter='#').values[1],
-             tgt)
-    src_tgt_dataset=src_tgt_dataset.map(
+             tgt))
+    
+    src_tgt_dataset = src_tgt_dataset.map(
         lambda src, control_vars, tgt: (
             tf.string_split([src]).values,
             control_vars,
@@ -154,9 +164,10 @@ def get_iterator(src_dataset,
     # Convert the word strings to ids.  Word strings that are not in the
     # vocab get the lookup table's default_value integer.
     src_tgt_dataset=src_tgt_dataset.map(
-        lambda src, control_vars, tgt: (tf.cast(src_vocab_table.lookup(src), tf.int32),
-                                       tf.cast(control_vars, tf.int32),
-                          tf.cast(tgt_vocab_table.lookup(tgt), tf.int32)),
+        lambda src, control_vars, tgt: (
+            tf.cast(src_vocab_table.lookup(src), tf.int32),
+            tf.string_to_number(control_vars, tf.float32),
+            tf.cast(tgt_vocab_table.lookup(tgt), tf.int32)),
         num_threads=num_threads, output_buffer_size=output_buffer_size)
     # Create a tgt_input prefixed with <sos> and a tgt_output suffixed with <eos>.
     src_tgt_dataset=src_tgt_dataset.map(
@@ -179,7 +190,7 @@ def get_iterator(src_dataset,
             # these have unknown-length vectors.  The last two entries are
             # the source and target row sizes; these are scalars.
             padded_shapes=(tf.TensorShape([None]),  # src
-                           tf, TensorShape([]),      # control variables
+                           tf.TensorShape([]),      # control variables
                            tf.TensorShape([None]),  # tgt_input
                            tf.TensorShape([None]),  # tgt_output
                            tf.TensorShape([]),      # src_len
@@ -188,7 +199,7 @@ def get_iterator(src_dataset,
             # (Though notice we don't generally need to do this since
             # later on we will be masking out calculations past the true sequence.
             padding_values=(src_eos_id,  # src
-                            0,           # control variables
+                            0.0,           # control variables
                             tgt_eos_id,  # tgt_input
                             tgt_eos_id,  # tgt_output
                             0,           # src_len -- unused
