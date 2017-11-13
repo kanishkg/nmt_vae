@@ -10,14 +10,14 @@ from collections import Counter, OrderedDict
 def make_image_dict(coco):
     anns = coco['annotations']
     image_dict = {}
-    for i in range(len(anns)):
+    for i in range(5):
         ann = anns[i]
         ann['caption'] = re.sub('[\n\r.]', '', ann['caption'])
+        print(len(ann['caption']))
         try:
             image_dict[ann['image_id']].append(ann['caption'])
         except:
             image_dict[ann['image_id']] = [ann['caption']]
-
     return image_dict
 
 def get_sentences(im_dict):

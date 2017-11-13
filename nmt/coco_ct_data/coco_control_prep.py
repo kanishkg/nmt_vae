@@ -12,7 +12,7 @@ def make_image_dict(coco):
     image_dict = {}
     for i in range(len(anns)):
         ann = anns[i]
-        ann['caption'] = re.sub('[\n\r.]', '', ann['caption'])
+        ann['caption'] = re.sub('[\n\r.#]', '', ann['caption'])
         try:
             image_dict[ann['image_id']].append(ann['caption'])
         except:
