@@ -252,7 +252,7 @@ class BaseModel(object):
                 encoder_state[-1][0].get_shape()[1], tf.int32)
             vae_input = tf.concat(s, axis=1)
             # This needs to be present as a hyperparameter
-            vae_units = hparams.num_units
+            vae_units = hparams.num_vae_units
             num_hidden_units = hparams.num_units
 
             mu = tf.contrib.layers.fully_connected(vae_input, vae_units,
