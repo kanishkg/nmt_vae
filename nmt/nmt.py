@@ -43,6 +43,8 @@ def add_arguments(parser):
     # network
     parser.add_argument("--num_units", type=int,
                         default=32, help="Network size.")
+    parser.add_argument("--num_vae_units", type=int,
+                        default=128, help="Number of VAE units.")
     parser.add_argument("--num_layers", type=int, default=2,
                         help="Network depth.")
     parser.add_argument("--encoder_type", type=str, default="uni", help="""\
@@ -250,6 +252,7 @@ def create_hparams(flags):
 
         # Networks
         num_units=flags.num_units,
+        num_vae_units=flags.num_vae_units,
         num_layers=flags.num_layers,
         dropout=flags.dropout,
         unit_type=flags.unit_type,
